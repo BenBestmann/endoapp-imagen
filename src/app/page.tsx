@@ -93,7 +93,7 @@ export default function Home() {
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          className="w-full p-4 bg-white rounded-2xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#A22A52] resize-none mb-3"
+          className="w-full p-4 bg-white rounded-2xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#A22A52] resize-none mb-3 placeholder:text-gray-400 text-gray-950"
           rows={6}
           placeholder="Enter your blog post titles (one per line)..."
           disabled={isLoading}
