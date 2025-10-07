@@ -1,6 +1,7 @@
 'use server';
 
 import { put } from '@vercel/blob';
+import { createClient } from 'redis';
 import { GeneratedImage } from '@/types';
 import { googleAI } from '@genkit-ai/google-genai';
 import { genkit } from 'genkit';
@@ -12,6 +13,67 @@ const ai = genkit({
 
 // Set model here, e.g. change to 'imagen-4.0-generate-001' for cheaper images
 const IMAGE_GEN_MODEL = 'gemini-2.5-flash-image';
+
+// Rate limiting configuration
+const MAX_IMAGES_PER_DAY = 10; // Adjust as needed
+
+// Create Redis client (connection string from Vercel environment)
+let redisClient: ReturnType<typeof createClient> | null = null;
+
+async function getRedisClient() {
+  if (!redisClient) {
+    redisClient = createClient({
+      url: process.env.REDIS_REDIS_URL,
+    });
+
+    redisClient.on('error', (err) => console.error('Redis Client Error', err));
+
+    await redisClient.connect();
+  }
+  return redisClient;
+}
+
+/**
+ * Check and update daily rate limit
+ */
+async function checkRateLimit(count: number): Promise<void> {
+  const redis = await getRedisClient();
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  const key = `image-generation:${today}`;
+
+  const current = await redis.get(key);
+  const currentCount = current ? parseInt(current, 10) : 0;
+
+  if (currentCount + count > MAX_IMAGES_PER_DAY) {
+    throw new Error(
+      `Daily limit exceeded. ${MAX_IMAGES_PER_DAY - currentCount} images remaining today.`
+    );
+  }
+
+  // Increment counter and set expiry for 48 hours (cleanup)
+  await redis.incrBy(key, count);
+  await redis.expire(key, 60 * 60 * 48); // 48 hours in seconds
+}
+
+/**
+ * Get remaining images for today
+ */
+export async function getRemainingImages(): Promise<number> {
+  try {
+    const redis = await getRedisClient();
+    const today = new Date().toISOString().split('T')[0];
+    const key = `image-generation:${today}`;
+
+    const current = await redis.get(key);
+    const currentCount = current ? parseInt(current, 10) : 0;
+
+    return Math.max(0, MAX_IMAGES_PER_DAY - currentCount);
+  } catch (error) {
+    console.error('Error checking rate limit:', error);
+    // Fail open - allow generation if Redis is down
+    return MAX_IMAGES_PER_DAY;
+  }
+}
 
 /**
  * Generates a visual concept from a blog post title.
@@ -89,6 +151,7 @@ async function uploadImageToBlob(imageUrl: string, filename: string): Promise<st
   const blob = await put(`${filename}.png`, buffer, {
     access: 'public',
     contentType: 'image/png',
+    addRandomSuffix: true,
   });
 
   return blob.url;
@@ -98,6 +161,18 @@ async function uploadImageToBlob(imageUrl: string, filename: string): Promise<st
  * Main server action to generate images from blog post titles.
  */
 export async function generateImages(prompts: string[]): Promise<GeneratedImage[]> {
+  // Validate input
+  if (!Array.isArray(prompts) || prompts.length === 0) {
+    throw new Error('Invalid prompts array');
+  }
+
+  if (prompts.length > 10) {
+    throw new Error('Maximum 10 images per request');
+  }
+
+  // Check rate limit BEFORE processing
+  await checkRateLimit(prompts.length);
+
   console.log(`Generating images for ${prompts.length} blog post(s)...`);
 
   const results: GeneratedImage[] = [];

@@ -1,19 +1,29 @@
 'use client';
 
 import Image from 'next/image';
-import { useState } from 'react';
-import { generateImages } from './actions';
+import { useState, useEffect } from 'react';
+import { generateImages, getRemainingImages } from './actions';
 import { GeneratedImage } from '@/types';
 
 export default function Home() {
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPrompt] = useState(
+    'Endometriose und Fatigue: Mehr als "Ich bin auch manchmal müde"\nWie die Ernährungsumstellung bei Endometriose gelingt'
+  );
   const [images, setImages] = useState<GeneratedImage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [remainingImages, setRemainingImages] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Load remaining quota on mount
+    getRemainingImages().then(setRemainingImages);
+  }, []);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
 
     setIsLoading(true);
+    setError(null); // Clear previous errors
 
     // Split by line breaks and filter out empty lines
     const prompts = prompt.split('\n').filter((line) => line.trim() !== '');
@@ -21,8 +31,12 @@ export default function Home() {
     try {
       const generatedImages = await generateImages(prompts);
       setImages(generatedImages);
+      // Refresh remaining count
+      const remaining = await getRemainingImages();
+      setRemainingImages(remaining);
     } catch (error) {
       console.error('Error generating images:', error);
+      setError(error instanceof Error ? error.message : 'Failed to generate images');
     } finally {
       setIsLoading(false);
     }
@@ -81,7 +95,7 @@ export default function Home() {
           onChange={(e) => setPrompt(e.target.value)}
           className="w-full p-4 bg-white rounded-2xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#A22A52] resize-none mb-3"
           rows={6}
-          placeholder="Enter your prompts (one per line)..."
+          placeholder="Enter your blog post titles (one per line)..."
           disabled={isLoading}
           autoFocus
         />
@@ -97,6 +111,48 @@ export default function Home() {
             ? 'Generating...'
             : `Generate Images${validLineCount > 0 ? ` (${validLineCount})` : ''}`}
         </button>
+
+        {remainingImages !== null && (
+          <p className="text-center block mt-3 text-sm font-medium text-[#A22A52]">
+            {remainingImages} images remaining today
+          </p>
+        )}
+
+        {/* Error Message */}
+        {error && (
+          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-2xl">
+            <div className="flex items-start">
+              <svg
+                className="w-5 h-5 text-red-600 mt-0.5 mr-3 flex-shrink-0"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              <div className="flex-1">
+                <h3 className="text-sm font-medium text-red-800">Unexpected Error</h3>
+                <p className="text-sm text-red-700 mt-1">{error}</p>
+              </div>
+              <button
+                onClick={() => setError(null)}
+                className="ml-3 flex-shrink-0 text-red-600 hover:text-red-800"
+                aria-label="Dismiss error"
+              >
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path
+                    fillRule="evenodd"
+                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Images Grid */}
         {(images.length > 0 || isLoading) && (
